@@ -18,6 +18,7 @@ One program to install, update and remove the Theater plugins for OBS Studio on 
 - **OBS must be closed** to install, update or remove. The installer notices when OBS is open and never closes it.
 - **obs-browser:** disabling renames `obs-browser.dll`, `obs-browser-page.exe` and their `.pdb` files in `obs-plugins\64bit` to `.old`. Restoring renames them back. Chromium's files stay where they are.
   - That folder is in Program Files, so the installer runs again as administrator for that step only (`Theater-Installer.exe --obs-browser <disable|restore> <OBS folder> <error file>`). Windows asks you first.
+  - Before you disable it, the installer points you to the Theater Control Panel's **🎭 Theater → Convert Browser Sources…**. That tool turns Browser Sources into Theater Web Sources by changing only their type, after backing up each scene collection. The installer warns you when the Control Panel isn't installed.
   - If an OBS update brings obs-browser back, the installer shows it and offers to disable it again.
 
 ## Build

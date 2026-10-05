@@ -375,6 +375,7 @@ impl App {
             Some(BrowserState::Missing) => "not in this OBS",
             None => "OBS not found",
         };
+        let control_panel_installed = PLUGINS.iter().position(|p| p.id == "theater-control-panel").is_some_and(|i| self.installed[i] != Installed::No);
         egui::CollapsingHeader::new(RichText::new(format!("Browser Source and Custom Browser Docks (obs-browser): {state_text}")).size(16.0).strong())
             .default_open(self.browser == Some(BrowserState::CameBack))
             .show(ui, |ui| match self.browser {
@@ -386,6 +387,16 @@ impl App {
                         "obs-browser is the part of OBS that shows web pages, with its own copy of Chromium. \
                          Theater doesn't need it: the Control Panel's dock and the Theater Web Source use Windows' WebView2.",
                     );
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("Move your Browser Sources over first, with the Theater Control Panel").strong());
+                    ui.label(
+                        "🎭 Theater > Convert Browser Sources… turns your Browser Sources into Theater Web Sources. \
+                         Only their type changes: name, URL or local file, size, CSS, filters and place in your scenes stay, \
+                         and each scene collection is backed up first.",
+                    );
+                    if !control_panel_installed {
+                        ui.colored_label(AMBER, "⚠ The Theater Control Panel isn't installed: install it above to get that tool.");
+                    }
                     ui.add_space(6.0);
                     egui::Frame::new()
                         .fill(Color32::from_rgb(58, 18, 18))
@@ -399,7 +410,7 @@ impl App {
                             ui.label(RichText::new("With obs-browser disabled, OBS shows no web pages itself:").strong());
                             for line in [
                                 // (">" rather than an arrow: egui's built-in font has none)
-                                "Every Browser Source stops showing. They stay in your scenes as missing sources, with their settings, until obs-browser is back. Convert them first: 🎭 Theater > Convert Browser Sources… turns them into Theater Web Sources.",
+                                "Every Browser Source you didn't convert stops showing. They stay in your scenes as missing sources, with their settings, until obs-browser is back.",
                                 "Docks > Custom Browser Docks disappears, with the docks you made there.",
                                 "Account connections (Settings > Stream > Connect Account) and their docks stop working: Twitch, YouTube and Restream chat, stats and activity feeds.",
                                 "Alerts, chat boxes and widgets from other services or plugins that need a Browser Source stop showing, until you move them to Theater Web Sources.",
@@ -415,7 +426,10 @@ impl App {
                             ui.add_space(6.0);
                             ui.checkbox(
                                 &mut self.understood,
-                                RichText::new("I understand: my Browser Sources, Custom Browser Docks and account connections stop working until I restore obs-browser.").strong(),
+                                RichText::new(
+                                    "I understand: the Browser Sources I didn't convert, my Custom Browser Docks and account connections stop working until I restore obs-browser.",
+                                )
+                                .strong(),
                             );
                         });
                     ui.add_space(6.0);

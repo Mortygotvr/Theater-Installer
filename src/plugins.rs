@@ -32,7 +32,8 @@ pub const PLUGINS: [Plugin; 3] = [
     Plugin {
         id: "theater-control-panel",
         name: "Theater Control Panel",
-        about: "Triggers, commands and modules in an OBS dock, and the Theater Web Source, which replaces Browser Source.",
+        about: "Triggers, commands and modules in an OBS dock, and the Theater Web Source, which replaces Browser Source. \
+                Its Convert Browser Sources… tool switches your existing Browser Sources over, keeping their settings.",
         icon: include_bytes!("../assets/control-panel.png"),
     },
 ];
