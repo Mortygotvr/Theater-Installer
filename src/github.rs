@@ -181,6 +181,30 @@ mod tests {
         assert_eq!(found["theater-scene"].version, Version::new(0, 1, 0));
     }
 
+    /// Against the real Theater-Releases: each plugin's newest zip downloads,
+    /// matches its checksum and installs (in a temp folder). Online, so only
+    /// on request: cargo test -- --ignored
+    #[test]
+    #[ignore]
+    fn the_live_releases_download_and_install() {
+        use crate::plugins::{self, Installed, PLUGINS};
+        let wanted: Vec<(&str, &str)> = PLUGINS.iter().map(|p| (p.id, "-windows-x64.zip")).chain([("theater-installer", ".exe")]).collect();
+        let found = latest(&wanted).unwrap();
+        assert!(found.contains_key("theater-installer"));
+        let tmp = std::env::temp_dir().join(format!("theater-installer-live-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        for plugin in &PLUGINS {
+            let latest = &found[plugin.id];
+            assert!(latest.asset.digest.is_some(), "GitHub lists {}'s checksum", latest.asset.name);
+            let zip = tmp.join(&latest.asset.name);
+            download(&latest.asset, &zip, &|_| {}).unwrap();
+            plugins::install_zip(&tmp.join("plugins"), plugin.id, &zip, &latest.version).unwrap();
+            assert_eq!(plugins::installed(&tmp.join("plugins"), plugin.id), Installed::Version(latest.version.clone()));
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     #[test]
     fn reads_githubs_release_list() {
         let json = r#"[{"tag_name":"theater-scene-v0.1.0","draft":false,"prerelease":true,

@@ -334,8 +334,7 @@ impl App {
                             _ => None,
                         };
                         if let Some(label) = install_label {
-                            let button = egui::Button::new(RichText::new(label).strong()).min_size(Vec2::new(170.0, 30.0));
-                            if ui.add_enabled(!blocked, button).clicked() {
+                            if sized_button(ui, !blocked, Vec2::new(170.0, 30.0), egui::Button::new(RichText::new(label).strong())) {
                                 actions.push(Action::Install(vec![i]));
                             }
                         } else if matches!((installed, newest(i)), (Installed::Version(_), Some(_))) {
@@ -421,14 +420,14 @@ impl App {
                         });
                     ui.add_space(6.0);
                     let label = if self.browser == Some(BrowserState::CameBack) { "Disable obs-browser again" } else { "Disable obs-browser" };
-                    let button = egui::Button::new(RichText::new(label).strong().color(Color32::WHITE)).fill(Color32::from_rgb(150, 36, 32)).min_size(Vec2::new(220.0, 32.0));
-                    if ui.add_enabled(self.understood && !blocked, button).clicked() {
+                    let button = egui::Button::new(RichText::new(label).strong().color(Color32::WHITE)).fill(Color32::from_rgb(150, 36, 32));
+                    if sized_button(ui, self.understood && !blocked, Vec2::new(240.0, 32.0), button) {
                         actions.push(Action::Browser { disable: true });
                     }
                 }
                 Some(BrowserState::Disabled) => {
                     ui.label("obs-browser is disabled: its files are renamed to .old. Browser Sources, Custom Browser Docks and account connections are off.");
-                    if ui.add_enabled(!blocked, egui::Button::new(RichText::new("Restore obs-browser").strong()).min_size(Vec2::new(220.0, 32.0))).clicked() {
+                    if sized_button(ui, !blocked, Vec2::new(240.0, 32.0), egui::Button::new(RichText::new("Restore obs-browser").strong())) {
                         actions.push(Action::Browser { disable: false });
                     }
                 }
@@ -440,6 +439,12 @@ impl App {
                 }
             });
     }
+}
+
+/// A button of a set size, its label centered (min_size would push the label
+/// to the side its column is aligned to). True when clicked.
+fn sized_button(ui: &mut egui::Ui, enabled: bool, size: Vec2, button: egui::Button) -> bool {
+    ui.add_enabled_ui(enabled, |ui| ui.add_sized(size, button)).inner.clicked()
 }
 
 /// A line in a colored frame
