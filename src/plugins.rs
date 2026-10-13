@@ -16,17 +16,18 @@ pub struct Plugin {
     pub icon: &'static [u8],
 }
 
-pub const PLUGINS: [Plugin; 3] = [
+pub const PLUGINS: [Plugin; 6] = [
     Plugin {
         id: "theater-scene",
         name: "Theater Scene",
-        about: "Turns stream events into effects on your avatar: redeems, poses, the Scene Studio, and Rhai chat and alerts.",
+        about: "Turns stream events into effects on your avatar: redeems, poses, the Scene Studio, and Rhai chat and alerts. \
+                Its alerts come from Theater Reader or a Theater API plugin.",
         icon: include_bytes!("../assets/scene.png"),
     },
     Plugin {
         id: "theater-reader",
         name: "Theater Reader",
-        about: "Reads Twitch, Kick and YouTube chat and alerts inside OBS, for Theater Scene and the Control Panel. Optional with the Theater Reader app.",
+        about: "Reads Twitch, Kick and YouTube chat and alerts inside OBS, without logging in, for Theater Scene and the Control Panel.",
         icon: include_bytes!("../assets/reader.png"),
     },
     Plugin {
@@ -35,6 +36,25 @@ pub const PLUGINS: [Plugin; 3] = [
         about: "Triggers, commands and modules in an OBS dock, and the Theater Web Source, which replaces Browser Source. \
                 Its Convert Browser Sources… tool switches your existing Browser Sources over, keeping their settings.",
         icon: include_bytes!("../assets/control-panel.png"),
+    },
+    Plugin {
+        id: "theater-api-twitch",
+        name: "Theater API · Twitch",
+        about: "Logs in to your Twitch channel: redeems with their real titles, cheers, subs, raids, follows and hype trains, \
+                plus your rewards, subscribers and followers. Works with or without Theater Reader.",
+        icon: include_bytes!("../assets/api-twitch.png"),
+    },
+    Plugin {
+        id: "theater-api-patreon",
+        name: "Theater API · Patreon",
+        about: "Logs in to your Patreon campaign: new, changed and ended pledges, and your patrons by tier.",
+        icon: include_bytes!("../assets/api-patreon.png"),
+    },
+    Plugin {
+        id: "theater-api-kofi",
+        name: "Theater API · Ko-fi",
+        about: "Ko-fi donations, memberships, shop orders and commissions, through your Ko-fi webhook.",
+        icon: include_bytes!("../assets/api-kofi.png"),
     },
 ];
 
