@@ -2,8 +2,10 @@
 
 One program to install, update and remove the Theater plugins for OBS Studio on Windows:
 
-- **Theater Scene**, **Theater Reader** and **Theater Control Panel.** For each one it shows the installed version and the newest one on GitHub, with **Install**, **Update** or **Remove**.
+- **Theater Scene**, **Theater Reader**, **Theater Control Panel** and the **Theater API** plugins (Twitch, Patreon, Ko-fi). For each one it shows the installed version and the newest one on GitHub, with **Install**, **Update** or **Remove**.
 - **obs-browser** (OBS's Browser Source and Custom Browser Docks). It can be disabled, behind a disclaimer, and restored.
+
+**Download:** `Theater-Installer.exe` from the [latest release](https://github.com/Mortygotvr/Theater-Installer/releases) (also in [Theater-Releases](https://github.com/Mortygotvr/Theater-Releases/releases)). It isn't signed, so Windows may say it protected your PC: click **More info**, then **Run anyway**.
 
 ## How it works
 
