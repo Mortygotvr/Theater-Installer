@@ -17,6 +17,7 @@ One program to install, update and remove the Theater plugins for OBS Studio on 
   4. A `version.txt` in the plugin's folder records the version.
 
   Settings in `%APPDATA%\obs-studio\plugin_config\<plugin>` are never touched, not even by **Remove**.
+- **Finding OBS:** the folder its installer recorded in the registry, else `C:\Program Files\obs-studio`, else Steam's copy (in each Steam library). Its version comes from `obs64.exe`. When that finds the wrong OBS or none (portable, another drive), **📁 Choose OBS folder…** picks it by hand; the choice is kept in `%LOCALAPPDATA%\Theater-Installer\obs-folder.txt` until **Find it by itself**.
 - **OBS must be closed** to install, update or remove. The installer notices when OBS is open and never closes it.
 - **obs-browser:** disabling renames `obs-browser.dll`, `obs-browser-page.exe` and their `.pdb` files in `obs-plugins\64bit` to `.old`. Restoring renames them back. Chromium's files stay where they are.
   - That folder is in Program Files, so the installer runs again as administrator for that step only (`Theater-Installer.exe --obs-browser <disable|restore> <OBS folder> <error file>`). Windows asks you first.

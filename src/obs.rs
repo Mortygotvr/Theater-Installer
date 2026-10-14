@@ -9,10 +9,15 @@ use std::io;
 use std::path::{Path, PathBuf};
 use windows::core::{HRESULT, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, ERROR_CANCELLED, ERROR_SUCCESS};
+use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, VS_FIXEDFILEINFO};
 use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS};
-use windows::Win32::System::Registry::{RegGetValueW, HKEY, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
+use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED};
+use windows::Win32::System::Registry::{RegGetValueW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
 use windows::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE};
-use windows::Win32::UI::Shell::{ShellExecuteExW, ShellExecuteW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+use windows::Win32::UI::Shell::{
+    FileOpenDialog, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName, ShellExecuteExW, ShellExecuteW, FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, SEE_MASK_NOASYNC,
+    SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, SIGDN_FILESYSPATH,
+};
 use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNORMAL};
 
 /// The installer's command line when it runs again as administrator for an
@@ -42,23 +47,126 @@ fn reg_string(root: HKEY, key: &str, value: Option<&str>) -> Option<String> {
     }
 }
 
-/// Where OBS is installed: what its installer wrote in the registry, else
-/// the usual folder
+/// Where OBS is installed: the folder you chose, else what OBS's installer
+/// wrote in the registry, the usual folder, or Steam's copy
 pub fn install_dir() -> Option<PathBuf> {
+    chosen_dir().or_else(found_dir)
+}
+
+/// The OBS found without your help
+pub fn found_dir() -> Option<PathBuf> {
     let usual = std::env::var_os("ProgramFiles").map(|p| PathBuf::from(p).join("obs-studio"));
     reg_string(HKEY_LOCAL_MACHINE, r"SOFTWARE\OBS Studio", None)
         .map(PathBuf::from)
         .into_iter()
         .chain(usual)
-        .find(|dir| dir.join(r"bin\64bit\obs64.exe").is_file())
+        .chain(steam_dirs())
+        .find(|dir| is_obs(dir))
 }
 
-/// OBS's version, as its installer recorded it ("32.2.2")
-pub fn version() -> Option<String> {
-    [r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\OBS Studio", r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\OBS Studio"]
-        .iter()
-        .find_map(|key| reg_string(HKEY_LOCAL_MACHINE, key, Some("DisplayVersion")))
-        .filter(|v| !v.trim().is_empty())
+fn is_obs(dir: &Path) -> bool {
+    dir.join(r"bin\64bit\obs64.exe").is_file()
+}
+
+/// OBS from Steam, in each Steam library
+fn steam_dirs() -> Vec<PathBuf> {
+    let Some(steam) = reg_string(HKEY_CURRENT_USER, r"Software\Valve\Steam", Some("SteamPath")).map(PathBuf::from) else { return Vec::new() };
+    let mut libraries = vec![steam.clone()];
+    // "path"		"D:\SteamLibrary" lines in libraryfolders.vdf
+    if let Ok(vdf) = fs::read_to_string(steam.join(r"steamapps\libraryfolders.vdf")) {
+        for line in vdf.lines() {
+            let parts: Vec<&str> = line.split('"').collect();
+            if let [_, "path", _, path, ..] = parts[..] {
+                libraries.push(PathBuf::from(path.replace(r"\\", r"\")));
+            }
+        }
+    }
+    libraries.into_iter().map(|lib| lib.join(r"steamapps\common\OBS Studio")).collect()
+}
+
+/// The installer's own settings: the OBS folder you chose
+fn chosen_file() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|p| PathBuf::from(p).join("Theater-Installer").join("obs-folder.txt"))
+}
+
+/// The OBS folder you chose, while it's still an OBS folder
+pub fn chosen_dir() -> Option<PathBuf> {
+    let dir = PathBuf::from(fs::read_to_string(chosen_file()?).ok()?.trim());
+    is_obs(&dir).then_some(dir)
+}
+
+/// Remembers the OBS folder you chose, or forgets it (None)
+pub fn set_chosen_dir(dir: Option<&Path>) -> Result<(), String> {
+    let file = chosen_file().ok_or("Windows didn't say where to keep the installer's settings (LOCALAPPDATA).")?;
+    let result = match dir {
+        Some(dir) => fs::create_dir_all(file.parent().unwrap()).and_then(|_| fs::write(&file, dir.display().to_string())),
+        None => match fs::remove_file(&file) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            other => other,
+        },
+    };
+    result.map_err(|e| format!("Couldn't save the OBS folder in {}: {e}", file.display()))
+}
+
+/// The OBS folder in a folder you picked: that folder, or the one above its
+/// bin\64bit (where obs64.exe is)
+pub fn obs_root(picked: &Path) -> Option<PathBuf> {
+    picked.ancestors().take(3).find(|dir| is_obs(dir)).map(Path::to_path_buf)
+}
+
+/// Windows' folder picker. None when cancelled.
+pub fn pick_folder(start: Option<&Path>) -> Option<PathBuf> {
+    unsafe {
+        // Already done by the window on this thread, most likely: either way is fine
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+        let options = dialog.GetOptions().ok()?;
+        dialog.SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM).ok()?;
+        let title = wide("Choose the OBS Studio folder (the one with bin, data and obs-plugins in it)");
+        let _ = dialog.SetTitle(PCWSTR(title.as_ptr()));
+        if let Some(start) = start {
+            let start = wide(&start.display().to_string());
+            if let Ok(item) = SHCreateItemFromParsingName::<_, _, IShellItem>(PCWSTR(start.as_ptr()), None) {
+                let _ = dialog.SetFolder(&item);
+            }
+        }
+        dialog.Show(None).ok()?;
+        let name = dialog.GetResult().ok()?.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
+        let path = name.to_string().ok();
+        CoTaskMemFree(Some(name.0 as *const c_void));
+        path.map(PathBuf::from)
+    }
+}
+
+/// OBS's version ("32.0.1"): from its obs64.exe, else as its installer
+/// recorded it
+pub fn version(dir: &Path) -> Option<String> {
+    exe_version(&dir.join(r"bin\64bit\obs64.exe")).or_else(|| {
+        [r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\OBS Studio", r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\OBS Studio"]
+            .iter()
+            .find_map(|key| reg_string(HKEY_LOCAL_MACHINE, key, Some("DisplayVersion")))
+            .filter(|v| !v.trim().is_empty())
+    })
+}
+
+fn exe_version(exe: &Path) -> Option<String> {
+    let name = wide(&exe.display().to_string());
+    unsafe {
+        let size = GetFileVersionInfoSizeW(PCWSTR(name.as_ptr()), None);
+        if size == 0 {
+            return None;
+        }
+        let mut data = vec![0u8; size as usize];
+        GetFileVersionInfoW(PCWSTR(name.as_ptr()), None, size, data.as_mut_ptr() as *mut c_void).ok()?;
+        let (mut info, mut len) = (std::ptr::null_mut::<c_void>(), 0u32);
+        let root = wide("\\");
+        if !VerQueryValueW(data.as_ptr() as *const c_void, PCWSTR(root.as_ptr()), &mut info, &mut len).as_bool() || info.is_null() {
+            return None;
+        }
+        let info = &*(info as *const VS_FIXEDFILEINFO);
+        let (ms, ls) = (info.dwProductVersionMS, info.dwProductVersionLS);
+        (ms != 0).then(|| format!("{}.{}.{}", ms >> 16, ms & 0xffff, ls >> 16))
+    }
 }
 
 pub fn is_running() -> bool {
@@ -217,7 +325,7 @@ pub fn run_elevated_step(args: &[String]) -> i32 {
     }
 }
 
-/// Opens a web page in your browser
+/// Opens a web page in your browser, or a folder in Explorer
 pub fn open_url(url: &str) {
     let (verb, url) = (wide("open"), wide(url));
     unsafe {
@@ -273,6 +381,26 @@ mod tests {
         assert_eq!(browser_state(&none), BrowserState::Missing);
         let _ = fs::remove_dir_all(&obs);
         let _ = fs::remove_dir_all(&none);
+    }
+
+    #[test]
+    fn a_picked_folder_inside_obs_finds_obs() {
+        let obs = fake_obs("picked", &[]);
+        fs::create_dir_all(obs.join(r"bin\64bit")).unwrap();
+        fs::write(obs.join(r"bin\64bit\obs64.exe"), "").unwrap();
+        for picked in [obs.clone(), obs.join("bin"), obs.join(r"bin\64bit"), obs.join("obs-plugins")] {
+            assert_eq!(obs_root(&picked).as_deref(), Some(obs.as_path()), "{}", picked.display());
+        }
+        assert_eq!(obs_root(&std::env::temp_dir()), None, "no OBS there");
+        let _ = fs::remove_dir_all(&obs);
+    }
+
+    #[test]
+    fn reads_an_exes_version() {
+        let windir = std::env::var_os("WINDIR").map(PathBuf::from).unwrap();
+        let version = exe_version(&windir.join("explorer.exe")).unwrap();
+        assert!(version.starts_with("10.") || version.starts_with("11."), "{version}");
+        assert_eq!(exe_version(&windir.join("no-such-file.exe")), None);
     }
 
     #[test]

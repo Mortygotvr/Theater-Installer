@@ -54,12 +54,17 @@ enum Action {
     Remove(usize),
     Browser { disable: bool },
     Open(String),
+    ChooseObs,
+    /// Forget the folder you chose and use the one found
+    FindObs,
 }
 
 pub struct App {
     plugins_dir: PathBuf,
     obs_dir: Option<PathBuf>,
     obs_version: Option<String>,
+    /// The OBS folder is the one you chose, not the one found
+    obs_chosen: bool,
     obs_running: bool,
     looked_at: Instant,
     installed: Vec<Installed>,
@@ -114,10 +119,12 @@ impl App {
             style.spacing.button_padding = egui::vec2(10.0, 5.0);
             style.spacing.item_spacing = egui::vec2(8.0, 6.0);
         });
+        let obs_dir = obs::install_dir();
         let mut app = App {
             plugins_dir: plugins::plugins_dir(),
-            obs_dir: obs::install_dir(),
-            obs_version: obs::version(),
+            obs_version: obs_dir.as_deref().and_then(obs::version),
+            obs_chosen: obs::chosen_dir().is_some(),
+            obs_dir,
             obs_running: false,
             looked_at: Instant::now(),
             installed: Vec::new(),
@@ -139,6 +146,20 @@ impl App {
         self.installed = PLUGINS.iter().map(|p| plugins::installed(&self.plugins_dir, p.id)).collect();
         self.browser = self.obs_dir.as_deref().map(obs::browser_state);
         self.looked_at = Instant::now();
+    }
+
+    /// Switches to another OBS folder (or none)
+    fn use_obs(&mut self, dir: Option<PathBuf>, chosen: bool) {
+        self.obs_version = dir.as_deref().and_then(obs::version);
+        self.obs_dir = dir;
+        self.obs_chosen = chosen;
+        self.understood = false;
+        self.look();
+    }
+
+    /// A line in the log
+    fn note(&self, error: bool, message: String) {
+        self.shared.lock().unwrap().log.push((error, message));
     }
 
     fn check_github(&self, ctx: &egui::Context) {
@@ -253,19 +274,41 @@ impl App {
             });
         });
         ui.add_space(4.0);
-        match (&self.obs_dir, &self.obs_version) {
-            (Some(dir), version) => {
-                let version = version.as_deref().unwrap_or("(version unknown)");
-                ui.label(RichText::new(format!("OBS Studio {version} in {}", dir.display())).weak());
-                let major = version.split('.').next().and_then(|m| m.parse::<u32>().ok());
-                if major.is_some_and(|m| m < 30) {
-                    ui.colored_label(AMBER, "⚠ Theater needs OBS Studio 30 or newer. Update OBS first.");
+        ui.horizontal_wrapped(|ui| {
+            match &self.obs_dir {
+                Some(dir) => {
+                    let version = self.obs_version.as_deref().unwrap_or("(version unknown)");
+                    let chosen = if self.obs_chosen { " (the folder you chose)" } else { "" };
+                    ui.label(RichText::new(format!("OBS Studio {version} in {}{chosen}", dir.display())).weak());
+                    if ui.small_button("Open").on_hover_text("Open OBS's folder in Explorer").clicked() {
+                        actions.push(Action::Open(dir.display().to_string()));
+                    }
+                }
+                None => {
+                    ui.colored_label(AMBER, "⚠ OBS Studio wasn't found on this PC. If it's there, choose its folder. The plugins can still be installed, for when it is.");
                 }
             }
-            (None, _) => {
-                ui.colored_label(AMBER, "⚠ OBS Studio wasn't found on this PC. The plugins can still be installed, for when it is.");
+            if ui
+                .small_button("📁 Choose OBS folder…")
+                .on_hover_text("When the installer finds the wrong OBS, or none (Steam, portable, another drive): pick the folder OBS is in, the one with bin, data and obs-plugins in it")
+                .clicked()
+            {
+                actions.push(Action::ChooseObs);
             }
+            if self.obs_chosen && ui.small_button("Find it by itself").on_hover_text("Forget the folder you chose").clicked() {
+                actions.push(Action::FindObs);
+            }
+        });
+        let major = self.obs_version.as_deref().and_then(|v| v.split('.').next()?.parse::<u32>().ok());
+        if major.is_some_and(|m| m < 30) {
+            ui.colored_label(AMBER, "⚠ Theater needs OBS Studio 30 or newer. Update OBS first.");
         }
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(format!("Plugins go in {}", self.plugins_dir.display())).weak());
+            if self.plugins_dir.is_dir() && ui.small_button("Open").on_hover_text("Open the plugins folder in Explorer").clicked() {
+                actions.push(Action::Open(self.plugins_dir.display().to_string()));
+            }
+        });
         if self.obs_running {
             notice(ui, AMBER, "⚠ OBS is open. Close it to install, update or remove; this window notices by itself.");
         }
@@ -449,7 +492,7 @@ impl App {
                     ui.label("This OBS has no obs-browser, so there's nothing to disable.");
                 }
                 None => {
-                    ui.label("OBS Studio wasn't found on this PC.");
+                    ui.label("OBS Studio wasn't found on this PC. If it's there, choose its folder at the top.");
                 }
             });
     }
@@ -539,6 +582,29 @@ impl eframe::App for App {
                     self.set_browser(ctx, disable);
                 }
                 Action::Open(url) => obs::open_url(&url),
+                Action::ChooseObs => {
+                    let Some(picked) = obs::pick_folder(self.obs_dir.as_deref()) else { continue };
+                    match obs::obs_root(&picked) {
+                        Some(dir) => match obs::set_chosen_dir(Some(&dir)) {
+                            Ok(()) => {
+                                self.note(false, format!("OBS Studio is in {}. The installer will remember it.", dir.display()));
+                                self.use_obs(Some(dir), true);
+                            }
+                            Err(e) => self.note(true, e),
+                        },
+                        None => self.note(
+                            true,
+                            format!(
+                                "There's no OBS Studio in {}. Pick the folder with bin\\64bit\\obs64.exe in it, like C:\\Program Files\\obs-studio.",
+                                picked.display()
+                            ),
+                        ),
+                    }
+                }
+                Action::FindObs => match obs::set_chosen_dir(None) {
+                    Ok(()) => self.use_obs(obs::found_dir(), false),
+                    Err(e) => self.note(true, e),
+                },
             }
         }
     }
